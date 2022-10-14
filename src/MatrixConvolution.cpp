@@ -2,6 +2,7 @@
 #include <fstream>
 #include <string>
 #include <ctime>
+#include <omp.h>
 
 using namespace std;
 
@@ -101,14 +102,18 @@ Matrix Matrix::convolution(const Matrix& kernel)
 
 	Matrix convMatr(convSize);
 	float sum;
+	int i, j, k, l;
 
+	omp_set_dynamic(0);
+	omp_set_num_threads(4);
+	#pragma omp parallel for shared(convMatr) private(k, l, i, j, sum)
 	/* Moving kernel window (Matr B) through Matrix A*/
-	for (int i = 0; i < convSize; ++i) {
-		for (int j = 0; j < convSize; ++j) {
+	for (i = 0; i < convSize; ++i) {
+		for (j = 0; j < convSize; ++j) {
 			/* Calculate element of convolution */
 			sum = 0;
-			for (int k = 0; k < kernel.getSize(); ++k) {
-				for (int l = 0; l < kernel.getSize(); ++l) {
+			for (k = 0; k < kernel.getSize(); ++k) {
+				for (l = 0; l < kernel.getSize(); ++l) {
 					sum += values[i + k][j + l] * kernel.get(k, l);
 				}
 			}
@@ -175,6 +180,8 @@ int main()
 		/* Save results */
 		matrC.saveToFile(res_fname, diff_time, fsize);
 		fin.close();
+		cout << "Time: " << diff_time << endl;
+		cout << "Data size: " << fsize << endl;
 	}
 	catch (exception& e) {
 		cerr << e.what() << endl;
