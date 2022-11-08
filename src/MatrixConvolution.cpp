@@ -1,185 +1,157 @@
 #include <iostream>
 #include <fstream>
 #include <string>
-#include <ctime>
-
-using namespace std;
-
-class Matrix {
-private:
-	int size;
-	float** values;
-public:
-	Matrix();
-	Matrix(int sz);
-	~Matrix();
-	Matrix(const Matrix& m);
-	int getSize() const;
-	float get(int i, int j) const;
-	void readFromFile(ifstream& fptr);
-	void setValue(int i, int j, float val);
-	Matrix convolution(const Matrix& kernel);
-	void saveToFile(string filename, int dtime, int fsize);
-	void print();
-
-};
-
-Matrix::Matrix() : size(0), values(nullptr) {}
-
-Matrix::Matrix(int sz)
-{
-	size = sz;
-	if (size <= 0)
-		throw exception("Invalid size of matrix.");
-	values = new float* [size];
-	for (int i = 0; i < size; i++)
-		values[i] = new float[size];
-}
-
-Matrix::~Matrix()
-{
-	for (int i = 0; i < size; i++)
-		delete[] values[i];
-	delete[] values;
-}
-
-Matrix::Matrix(const Matrix& m)
-{
-	size = m.getSize();
-	values = new float* [size];
-	for (int i = 0; i < size; i++)
-		values[i] = new float[size];
-	for (int i = 0; i < size; ++i)
-		for (int j = 0; j < size; ++j)
-			values[i][j] = m.get(i, j);
-}
-
-int Matrix::getSize() const
-{
-	return size;
-}
-
-float Matrix::get(int i, int j) const
-{
-	if ((i > size) || (j > size))
-		throw exception("Invalid indexes.");
-	return values[i][j];
-}
-
-void Matrix::readFromFile(ifstream& fptr)
-{
-	if (!fptr.is_open())
-		throw exception("Invalid ifstream.");
-	fptr >> size;
-	if (size <= 0)
-		throw exception("Invalid size of matrix.");
-	values = new float* [size];
-	for (int i = 0; i < size; i++)
-		values[i] = new float[size];
-
-	for (int i = 0; i < size; ++i)
-		for (int j = 0; j < size; ++j)
-			if (!fptr.eof())
-				fptr >> values[i][j];
-			else {
-				throw exception("Failed reading matrix from file. End of file.");
-			}
-}
-
-void Matrix::setValue(int i, int j, float val)
-{
-	if ((i > size) || (j > size))
-		throw exception("Invalid indexes.");
-	values[i][j] = val;
-}
-
-Matrix Matrix::convolution(const Matrix& kernel)
-{
-	int convSize = size - kernel.getSize() + 1;
-	if (convSize <= 0)
-		throw exception("Wrong matrix size for convolution.");
-
-	Matrix convMatr(convSize);
-	float sum;
-
-	/* Moving kernel window (Matr B) through Matrix A*/
-	for (int i = 0; i < convSize; ++i) {
-		for (int j = 0; j < convSize; ++j) {
-			/* Calculate element of convolution */
-			sum = 0;
-			for (int k = 0; k < kernel.getSize(); ++k) {
-				for (int l = 0; l < kernel.getSize(); ++l) {
-					sum += values[i + k][j + l] * kernel.get(k, l);
-				}
-			}
-			convMatr.setValue(i, j, sum);
-		}
-	}
-
-	return convMatr;
-}
-
-void Matrix::saveToFile(string filename, int dtime, int fsize)
-{
-	ofstream fout;
-	fout.open(filename);
-	if (!fout.is_open())
-		throw exception("File for writing is not opened.");
-
-	for (int i = 0; i < size; ++i) {
-		for (int j = 0; j < size; ++j)
-			fout << values[i][j] << " ";
-		fout << endl;
-	}
-	fout << "Time: " << dtime << endl;
-	fout << "Size of processed data: " << fsize;
-	fout.close();
-}
+#include <mpi.h>
+#include "Matrix.h"
 
 
-void Matrix::print() {
-	cout << "Printing matrix with size: " << size << endl;
-	for (int i = 0; i < size; ++i) {
-		for (int j = 0; j < size; ++j)
-			cout << values[i][j] << " ";
-		cout << endl;
-	}
-}
-
-
-int main()
+int main(int argc, char** argv)
 {
 	string fname, res_fname;
-	unsigned int start_time, diff_time, fsize;
+	unsigned int fsize;
+	int rank, numtasks;
+	int sizeA, sizeB=0;
+	int recvsize;
+	/*vars for counts calculation*/
+	int count_iter_all, count_iter_base, count_iter_rem;
+	int counts_base;
+	int* sendcounts = NULL;
+	//int* recvcounts = NULL;
+	int* displs = NULL;
 
-	/* Get file name */
-	cout << "Enter file name > " << endl;
-	cin >> fname;
-	ifstream fin(fname);
+	/*bufs for arrays*/
+	float* plainA = NULL;
+	float* plainB = NULL;
+	float* recvbuf = NULL;
+	float* plainC = NULL;
 
-	Matrix matrA;
-	Matrix matrB;
-	try {
-		/* Main logic */
+	MPI_Init(&argc, &argv);
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	MPI_Comm_size(MPI_COMM_WORLD, &numtasks);
+
+	if (rank == 0) {
+		Matrix matrA, matrB;
+
+		/* Get file name */
+		std::cout << "Enter file name > " << std::endl;
+		std::cin >> fname;
+		std::ifstream fin(fname);
+		try {
 		matrA.readFromFile(fin);
 		matrB.readFromFile(fin);
-		start_time = clock();
-		Matrix matrC = matrA.convolution(matrB);
 
-		/* Get statistical information*/
-		diff_time = (clock() - start_time) / CLOCKS_PER_SEC;
+		/*Gen result filename*/
 		fin.seekg(0, std::ios::end);
 		fsize = fin.tellg() / (1024 * 1024);
 		res_fname = "data\\res_" + to_string(fsize) + ".txt";
+		fin.close();
+		}
+		catch (std::exception& e) {
+			std::cerr << e.what() << std::endl;
+			return -1;
+		}
 
+		sizeA = matrA.getSize();
+		sizeB = matrB.getSize();
+		plainA = matrA.to_plain_array();
+		plainB = matrB.to_plain_array();
+
+		//broadcast matrB to all tasks
+		MPI_Bcast(&sizeB, 1, MPI_INT, 0, MPI_COMM_WORLD);
+		MPI_Bcast(plainB, sizeB * sizeB, MPI_FLOAT, 0, MPI_COMM_WORLD);
+		//broadcast matrA size to all tasks
+		MPI_Bcast(&sizeA, 1, MPI_INT, 0, MPI_COMM_WORLD);
+	
+		count_iter_all = sizeA - sizeB + 1;
+		plainC = new float[count_iter_all * count_iter_all];
+	}
+	else {
+		MPI_Bcast(&sizeB, 1, MPI_INT, 0, MPI_COMM_WORLD);
+		plainB = new float[sizeB * sizeB];
+		MPI_Bcast(plainB, sizeB * sizeB, MPI_FLOAT, 0, MPI_COMM_WORLD);
+		MPI_Bcast(&sizeA, 1, MPI_INT, 0, MPI_COMM_WORLD);
+	}
+	
+	/*calculations*/
+	count_iter_all = sizeA - sizeB + 1; //num of all iterations - convolution res size
+	count_iter_base = count_iter_all / numtasks; //num of iterations for each task
+	count_iter_rem = count_iter_all % numtasks; // num of remained iterations
+	counts_base = sizeA * (sizeB + count_iter_base - 1); //base num of A elements for each task
+
+	int displs_sum = 0;
+	sendcounts = new int[numtasks];
+	//recvcounts = new int[numtasks];
+	displs = new int[numtasks];
+	for (int i = 0; i < numtasks; i++) {
+		sendcounts[i] = counts_base;
+		displs[i] = displs_sum;
+		displs_sum += count_iter_base * sizeA;
+		if (count_iter_rem > 0 and i > 0) {
+			sendcounts[i] += sizeA;
+			displs_sum += sizeA;
+			count_iter_rem--;
+		}
+	}
+	/*end calculations*/
+
+	/*allocate memory for matrA part of needed size*/
+	recvsize = sendcounts[rank];
+	recvbuf = new float[recvsize];
+	
+	MPI_Scatterv(plainA, sendcounts, displs, MPI_FLOAT, recvbuf, recvsize, MPI_FLOAT, 0, MPI_COMM_WORLD);
+
+	if (plainA) delete[] plainA;
+
+	//double start_time = MPI_Wtime();
+
+	/*CONVOLUTION*/
+	float sum = 0;
+	int vertic_iter_count = recvsize / sizeA - sizeB + 1; // number of interations for vertical steps for current task
+	float* plain_res = new float[count_iter_all * vertic_iter_count]; //count_iter_all - iter num for horisontal steps for cur task
+	double start_time = MPI_Wtime();
+	for (int i = 0; i < vertic_iter_count; i++ )
+		for (int j = 0; j < count_iter_all; ++j) {
+			/* Calculate element of convolution */
+			sum = 0;
+			for (int k = 0; k < sizeB; ++k) {
+				for (int l = 0; l < sizeB; ++l) {
+					sum += recvbuf[((i+k)*sizeA+j + l)] *plainB[k * sizeB + l];//A[i+k][j+l] * B[k][l];
+				}
+			}
+			plain_res[i* count_iter_all+j] = sum; //C[i][j]
+		}
+
+	/*Get convolution time*/
+	double end_time = MPI_Wtime();
+	double task_time = end_time - start_time;
+	double diff_time;
+	MPI_Reduce(&task_time, &diff_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+
+	/*Free bufs*/
+	if (recvbuf) delete[] recvbuf;
+	if (plainB) delete[] plainB;
+
+	/*Gather results*/
+	/*transform sendcounts to new recvcounts for root task*/
+	if (rank == 0) {
+		displs_sum = 0;
+		for (int i = 0; i < numtasks; i++) {
+			sendcounts[i] = sendcounts[i] / sizeA - sizeB + 1;
+			sendcounts[i] *= count_iter_all;
+			displs[i] = displs_sum;
+			displs_sum += sendcounts[i];
+		}
+	}
+	
+	MPI_Gatherv(plain_res, vertic_iter_count* count_iter_all, MPI_FLOAT, plainC, sendcounts, displs, MPI_FLOAT, 0, MPI_COMM_WORLD);
+	
+	if (rank == 0) {
+		Matrix matrC(count_iter_all, plainC);
 		/* Save results */
 		matrC.saveToFile(res_fname, diff_time, fsize);
-		fin.close();
-	}
-	catch (exception& e) {
-		cerr << e.what() << endl;
-		return -1;
+		std::cout << "Time: " << diff_time << std::endl;
 	}
 
+	MPI_Finalize();
 	return 0;
 }
