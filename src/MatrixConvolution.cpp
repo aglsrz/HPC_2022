@@ -80,7 +80,6 @@ int main(int argc, char** argv)
 
 	int displs_sum = 0;
 	sendcounts = new int[numtasks];
-	//recvcounts = new int[numtasks];
 	displs = new int[numtasks];
 	for (int i = 0; i < numtasks; i++) {
 		sendcounts[i] = counts_base;
@@ -128,8 +127,8 @@ int main(int argc, char** argv)
 	MPI_Reduce(&task_time, &diff_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
 
 	/*Free bufs*/
-	if (recvbuf) delete[] recvbuf;
-	if (plainB) delete[] plainB;
+	delete[] recvbuf;
+	delete[] plainB;
 
 	/*Gather results*/
 	/*transform sendcounts to new recvcounts for root task*/
@@ -143,10 +142,15 @@ int main(int argc, char** argv)
 		}
 	}
 	
-	MPI_Gatherv(plain_res, vertic_iter_count* count_iter_all, MPI_FLOAT, plainC, sendcounts, displs, MPI_FLOAT, 0, MPI_COMM_WORLD);
+	MPI_Gatherv(plain_res, vertic_iter_count*count_iter_all, MPI_FLOAT, plainC, sendcounts, displs, MPI_FLOAT, 0, MPI_COMM_WORLD);
 	
+	delete[] sendcounts;
+	delete[] displs;
+	delete[] plain_res;
+
 	if (rank == 0) {
 		Matrix matrC(count_iter_all, plainC);
+		delete[] plainC;
 		/* Save results */
 		matrC.saveToFile(res_fname, diff_time, fsize);
 		std::cout << "Time: " << diff_time << std::endl;
