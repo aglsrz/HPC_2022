@@ -304,7 +304,13 @@ ifeq ($(SAMPLE_ENABLED),0)
 EXEC ?= @echo "[@]"
 endif
 
+#################################################################################
+#my rules
 ALL_CCFLAGS += --std=c++11
+MPICXX="/root/yakovenko/openmpi/bin/mpic++"
+
+CFLAGS=-std=c++11 -O2 -Wall -Werror
+#LDFLAGS=-lm
 
 SRC_DIR=./src/
 ################################################################################
@@ -324,21 +330,22 @@ else
 endif
 
 Matrix.o:$(SRC_DIR)/Matrix.cpp
-	$(EXEC) g++ -std=c++11 $(INCLUDES) $(GCCFLAGS) -o $@ -c $<
+	$(EXEC) $(MPICXX) $(CFLAGS) $(INCLUDES) $(GCCFLAGS) -o $@ -c $<
 
-MatrixConvolution.o:$(SRC_DIR)/MatrixConvolution.cu Matrix.o
+MatrixConvolution.o:$(SRC_DIR)/MatrixConvolution.cu 
 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
 
-MatrixConvolution: MatrixConvolution.o
-	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) Matrix.o -o $@ $+ $(LIBRARIES)
-	$(EXEC) mkdir -p ../../bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)
-	$(EXEC) cp $@ ../../bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)
+ConvolutionMPI.o:$(SRC_DIR)/ConvolutionMPI.cpp
+	$(EXEC) $(MPICXX) $(CFLAGS) $(LDFLAGS) -o $@ -c $<
+
+MatrixConvolution: MatrixConvolution.o ConvolutionMPI.o Matrix.o
+	$(EXEC) $(MPICXX) $(CFLAGS) $(LDFLAGS) -o $@ $+ $(LIBRARIES)
+	$(EXEC) mkdir -p ./bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)
+	$(EXEC) cp $@ ./bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)
 
 run: build
 	$(EXEC) ./MatrixConvolution
 
 clean:
-	rm -f MatrixConvolution MatrixConvolution.o Matrix.o
-	rm -rf ../../bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)/MatrixConvolution
-
-clobber: clean
+	rm -f MatrixConvolution *.o
+	rm -rf ./bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)/MatrixConvolution
