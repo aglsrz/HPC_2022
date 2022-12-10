@@ -1,31 +1,29 @@
 ################################################################################
+# Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
 #
-# Copyright 1993-2015 NVIDIA Corporation.  All rights reserved.
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+#  * Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+#  * Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+#  * Neither the name of NVIDIA CORPORATION nor the names of its
+#    contributors may be used to endorse or promote products derived
+#    from this software without specific prior written permission.
 #
-# NOTICE TO USER:
-#
-# This source code is subject to NVIDIA ownership rights under U.S. and
-# international Copyright laws.
-#
-# NVIDIA MAKES NO REPRESENTATION ABOUT THE SUITABILITY OF THIS SOURCE
-# CODE FOR ANY PURPOSE.  IT IS PROVIDED "AS IS" WITHOUT EXPRESS OR
-# IMPLIED WARRANTY OF ANY KIND.  NVIDIA DISCLAIMS ALL WARRANTIES WITH
-# REGARD TO THIS SOURCE CODE, INCLUDING ALL IMPLIED WARRANTIES OF
-# MERCHANTABILITY, NONINFRINGEMENT, AND FITNESS FOR A PARTICULAR PURPOSE.
-# IN NO EVENT SHALL NVIDIA BE LIABLE FOR ANY SPECIAL, INDIRECT, INCIDENTAL,
-# OR CONSEQUENTIAL DAMAGES, OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
-# OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
-# OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE
-# OR PERFORMANCE OF THIS SOURCE CODE.
-#
-# U.S. Government End Users.  This source code is a "commercial item" as
-# that term is defined at 48 C.F.R. 2.101 (OCT 1995), consisting  of
-# "commercial computer software" and "commercial computer software
-# documentation" as such terms are used in 48 C.F.R. 12.212 (SEPT 1995)
-# and is provided to the U.S. Government only as a commercial end item.
-# Consistent with 48 C.F.R.12.212 and 48 C.F.R. 227.7202-1 through
-# 227.7202-4 (JUNE 1995), all U.S. Government End Users acquire the
-# source code with only those rights set forth herein.
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
+# EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+# PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+# CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+# EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+# PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+# OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 ################################################################################
 #
@@ -203,12 +201,13 @@ ifneq ($(TARGET_ARCH),$(HOST_ARCH))
             LDFLAGS += -rpath-link=$(TARGET_FS)/usr/lib -L$(TARGET_FS)/usr/lib
             LDFLAGS += -rpath-link=$(TARGET_FS)/usr/lib/aarch64-linux-gnu -L$(TARGET_FS)/usr/lib/aarch64-linux-gnu
             LDFLAGS += --unresolved-symbols=ignore-in-shared-libs
-            CCFLAGS += -isystem=$(TARGET_FS)/usr/include  -I$(TARGET_FS)/usr/include
+            CCFLAGS += -isystem=$(TARGET_FS)/usr/include -I$(TARGET_FS)/usr/include -I$(TARGET_FS)/usr/include/libdrm
             CCFLAGS += -isystem=$(TARGET_FS)/usr/include/aarch64-linux-gnu -I$(TARGET_FS)/usr/include/aarch64-linux-gnu
         endif
     endif
     ifeq ($(TARGET_ARCH)-$(TARGET_OS),aarch64-qnx)
-        NVCCFLAGS += --qpp-config 5.4.0,gcc_ntoaarch64le
+        NVCCFLAGS += -D_QNX_SOURCE
+        NVCCFLAGS += --qpp-config 8.3.0,gcc_ntoaarch64le
         CCFLAGS += -DWIN_INTERFACE_CUSTOM -I/usr/include/aarch64-qnx-gnu
         LDFLAGS += -lsocket
         LDFLAGS += -L/usr/lib/aarch64-qnx-gnu
@@ -222,6 +221,7 @@ ifneq ($(TARGET_ARCH),$(HOST_ARCH))
             CCFLAGS += "-Wl\,-rpath-link\,$(TARGET_FS)/usr/lib"
             LDFLAGS += -L$(TARGET_FS)/usr/libnvidia
             CCFLAGS += "-Wl\,-rpath-link\,$(TARGET_FS)/usr/libnvidia"
+            CCFLAGS += -I$(TARGET_FS)/../include
         endif
     endif
 endif
@@ -252,7 +252,8 @@ endif
 
 # Debug build flags
 ifeq ($(dbg),1)
-      NVCCFLAGS += -g -G
+      NVCCFLAGS += -G
+      CCFLAGS += -g
       BUILD_TYPE := debug
 else
       BUILD_TYPE := release
@@ -266,23 +267,79 @@ ALL_CCFLAGS += $(addprefix -Xcompiler ,$(EXTRA_CCFLAGS))
 
 SAMPLE_ENABLED := 1
 
+# This sample is not supported on ARMv7
+ifeq ($(TARGET_ARCH),armv7l)
+  $(info >>> WARNING - simpleMPI is not supported on ARMv7 - waiving sample <<<)
+  SAMPLE_ENABLED := 0
+endif
+
+# This sample is not supported on aarch64
+ifeq ($(TARGET_ARCH),aarch64)
+  $(info >>> WARNING - simpleMPI is not supported on aarch64 - waiving sample <<<)
+  SAMPLE_ENABLED := 0
+endif
+
+# This sample is not supported on sbsa
+ifeq ($(TARGET_ARCH),sbsa)
+  $(info >>> WARNING - simpleMPI is not supported on sbsa - waiving sample <<<)
+  SAMPLE_ENABLED := 0
+endif
+
 ALL_LDFLAGS :=
 ALL_LDFLAGS += $(ALL_CCFLAGS)
 ALL_LDFLAGS += $(addprefix -Xlinker ,$(LDFLAGS))
 ALL_LDFLAGS += $(addprefix -Xlinker ,$(EXTRA_LDFLAGS))
 
-GCCFLAGS :=
-GCCFLAGS += $(CCFLAGS)
-GCCFLAGS += $(EXTRA_CCFLAGS)
+MPI_CCFLAGS :=
+MPI_CCFLAGS += $(CCFLAGS)
+MPI_CCFLAGS += $(EXTRA_CCFLAGS)
+MPI_CCFLAGS += 
+
+MPI_LDFLAGS :=
+MPI_LDFLAGS += $(addprefix -Xlinker ,$(LDFLAGS))
+MPI_LDFLAGS += $(addprefix -Xlinker ,$(EXTRA_LDFLAGS))
 
 # Common includes and paths for CUDA
-INCLUDES  := -I/root/NVIDIA_CUDA-11.1_Samples/common/inc
+INCLUDES  := -I/root/NVIDIA_CUDA-11.1_Samples/common/inc -I/root/yakovenko/openmpi/include
 LIBRARIES :=
 
 ################################################################################
 
+# MPI check and binaries
+MPICXX ?= "/root/yakovenko/openmpi/bin/mpic++"
+
+ifneq ($(TARGET_ARCH),$(HOST_ARCH))
+      $(info -----------------------------------------------------------------------------------------------)
+      $(info WARNING - Cross Compilation not supported for MPI Samples.)
+      $(info -----------------------------------------------------------------------------------------------)
+      $(info   Waiving the build )
+      $(info   This will be a dry-run of the Makefile.)
+      $(info   For more information on how to set up your environment to build and run this )
+      $(info   sample, please refer the CUDA Samples documentation and release notes)
+      $(info -----------------------------------------------------------------------------------------------)
+      MPICXX=mpicxx
+      SAMPLE_ENABLED := 0
+endif
+
+ifeq ($(MPICXX),)
+      $(info -----------------------------------------------------------------------------------------------)
+      $(info WARNING - No MPI compiler found.)
+      $(info -----------------------------------------------------------------------------------------------)
+      $(info   CUDA Sample "simpleMPI" cannot be built without an MPI Compiler.)
+      $(info   This will be a dry-run of the Makefile.)
+      $(info   For more information on how to set up your environment to build and run this )
+      $(info   sample, please refer the CUDA Samples documentation and release notes)
+      $(info -----------------------------------------------------------------------------------------------)
+      MPICXX=mpicxx
+      SAMPLE_ENABLED := 0
+endif
+
 # Gencode arguments
+ifeq ($(TARGET_ARCH),$(filter $(TARGET_ARCH),armv7l aarch64 sbsa))
+SMS ?= 53 61 70 72 75 80 86 87
+else
 SMS ?= 35 37 50 52 60 61 70 75 80 86
+endif
 
 ifeq ($(SMS),)
 $(info >>> WARNING - no SM architectures have been specified - waiving sample <<<)
@@ -300,17 +357,23 @@ GENCODE_FLAGS += -gencode arch=compute_$(HIGHEST_SM),code=compute_$(HIGHEST_SM)
 endif
 endif
 
+ALL_CCFLAGS +=  --std=c++11
+
+LIBSIZE :=
+ifneq ($(TARGET_OS),darwin)
+ifeq ($(TARGET_SIZE),64)
+LIBSIZE := 64
+endif
+endif
+
+LIBRARIES += -L$(CUDA_PATH)/lib -L$(CUDA_PATH)/lib$(LIBSIZE) -lcudart
+
 ifeq ($(SAMPLE_ENABLED),0)
 EXEC ?= @echo "[@]"
 endif
 
-#################################################################################
-#my rules
-ALL_CCFLAGS += --std=c++11
-MPICXX="/root/yakovenko/openmpi/bin/mpic++"
-
+################################################################################
 CFLAGS=-std=c++11 -O2 -Wall -Werror
-#LDFLAGS=-lm
 
 SRC_DIR=./src/
 ################################################################################
@@ -330,16 +393,16 @@ else
 endif
 
 Matrix.o:$(SRC_DIR)/Matrix.cpp
-	$(EXEC) $(MPICXX) $(CFLAGS) $(INCLUDES) $(GCCFLAGS) -o $@ -c $<
+	$(EXEC) $(MPICXX) $(CFLAGS) $(INCLUDES) -o $@ -c $<
 
 MatrixConvolution.o:$(SRC_DIR)/MatrixConvolution.cu 
 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
 
 ConvolutionMPI.o:$(SRC_DIR)/ConvolutionMPI.cpp
-	$(EXEC) $(MPICXX) $(CFLAGS) $(LDFLAGS) -o $@ -c $<
+	$(EXEC) $(MPICXX) -std=c++11 $(INCLUDES) $(MPI_CCFLAGS) -o $@ -c $<
 
-MatrixConvolution: MatrixConvolution.o ConvolutionMPI.o Matrix.o
-	$(EXEC) $(MPICXX) $(CFLAGS) $(LDFLAGS) -o $@ $+ $(LIBRARIES)
+MatrixConvolution: ConvolutionMPI.o MatrixConvolution.o Matrix.o
+	$(EXEC) $(MPICXX) -std=c++11 $(MPI_LDFLAGS) -o $@ $+ $(LIBRARIES)
 	$(EXEC) mkdir -p ./bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)
 	$(EXEC) cp $@ ./bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)
 

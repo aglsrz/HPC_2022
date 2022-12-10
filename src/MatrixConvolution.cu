@@ -1,9 +1,4 @@
-#include <iostream>
-#include <fstream>
-#include <string>
-#include "Matrix.h"
-
-#define MAX_THREADS 1024
+#define MAX_THREADS 256
 
 __global__ void matrConvolution(const float *matrA, const float *matrB, float *matrC, int N, int M, int vertic_iter_count) {
     int cid = blockIdx.x * blockDim.x + threadIdx.x; //new element id
@@ -21,15 +16,17 @@ __global__ void matrConvolution(const float *matrA, const float *matrB, float *m
 		matrC[cid] = sum;
 }
 
-float *convoluteGPU(const float *plainA, const float *plainB, int sizeA, int sizeB, int vertic_iter_count){
+float *convoluteGPU(const float *plainA, const float *plainB, int sizeA, int sizeB, int vertic_iter_count, int recvsize){
 	int conv_size = sizeA - sizeB + 1;
+	//int heightA = vertic_iter_count + sizeB -1;
 	float* plainC = NULL;
 	plainC = new float[conv_size * vertic_iter_count];
 
+
 	/*allocate device memory*/
 	float* d_A, *d_B, *d_C;
-	cudaMalloc((void **) &d_A, sizeA * sizeA * sizeof(float));
-	cudaMemcpy(d_A, plainA, sizeA * sizeA * sizeof(float), cudaMemcpyHostToDevice);
+	cudaMalloc((void **) &d_A, recvsize * sizeof(float));
+	cudaMemcpy(d_A, plainA, recvsize * sizeof(float), cudaMemcpyHostToDevice);
 	cudaMalloc((void **) &d_B, sizeB * sizeB* sizeof(float));
 	cudaMemcpy(d_B, plainB, sizeB * sizeB * sizeof(float), cudaMemcpyHostToDevice);
 	cudaMalloc((void **) &d_C, conv_size * vertic_iter_count * sizeof(float));
@@ -43,10 +40,6 @@ float *convoluteGPU(const float *plainA, const float *plainB, int sizeA, int siz
 
 	cudaMemcpy(plainC, d_C, conv_size * vertic_iter_count  * sizeof(float), cudaMemcpyDeviceToHost);
 	cudaFree(d_A); cudaFree(d_B); cudaFree (d_C);
-
-	/*Free bufs*/
-	delete[] plainA;
-	delete[] plainB;
 
 	return plainC;
 }

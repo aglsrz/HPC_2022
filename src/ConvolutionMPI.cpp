@@ -4,12 +4,12 @@
 #include <mpi.h>
 #include "Matrix.h"
 
-float *convoluteGPU(const float*, const float*, int, int, int);
+float *convoluteGPU(const float*, const float*, int, int, int, int);
 
 int main(int argc, char** argv)
 {
 	string fname, res_fname;
-	unsigned int fsize;
+	unsigned int fsize=0;
 	int rank, numtasks;
 	int sizeA, sizeB=0;
 	int recvsize;
@@ -44,7 +44,7 @@ int main(int argc, char** argv)
 		/*Gen result filename*/
 		fin.seekg(0, std::ios::end);
 		fsize = fin.tellg() / (1024 * 1024);
-		res_fname = "data\\res_" + to_string(fsize) + ".txt";
+		res_fname = "data/res_" + to_string(fsize) + ".txt";
 		fin.close();
 		}
 		catch (std::exception& e) {
@@ -100,23 +100,20 @@ int main(int argc, char** argv)
 	
 	MPI_Scatterv(plainA, sendcounts, displs, MPI_FLOAT, recvbuf, recvsize, MPI_FLOAT, 0, MPI_COMM_WORLD);
 
-	if (plainA) delete[] plainA;
-
-	//double start_time = MPI_Wtime();
-
+	delete[] plainA;
+ 
 	/*CONVOLUTION*/
 	int vertic_iter_count = recvsize / sizeA - sizeB + 1; // number of interations for vertical steps for current task
 	float* plain_res = new float[count_iter_all * vertic_iter_count]; //count_iter_all - iter num for horisontal steps for cur task
 	double start_time = MPI_Wtime();
 	
-    plain_res = convoluteGPU(recvbuf, plainB, sizeA, sizeB, vertic_iter_count);
-
+    plain_res = convoluteGPU(recvbuf, plainB, sizeA, sizeB, vertic_iter_count, recvsize);
+ 
 	/*Get convolution time*/
 	double end_time = MPI_Wtime();
 	double task_time = end_time - start_time;
 	double diff_time;
 	MPI_Reduce(&task_time, &diff_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-
 	/*Free bufs*/
 	delete[] recvbuf;
 	delete[] plainB;
@@ -134,7 +131,7 @@ int main(int argc, char** argv)
 	}
 	
 	MPI_Gatherv(plain_res, vertic_iter_count*count_iter_all, MPI_FLOAT, plainC, sendcounts, displs, MPI_FLOAT, 0, MPI_COMM_WORLD);
-	
+
 	delete[] sendcounts;
 	delete[] displs;
 	delete[] plain_res;
